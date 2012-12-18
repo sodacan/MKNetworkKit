@@ -458,7 +458,7 @@ static NSOperationQueue *_sharedNetworkQueue;
 #ifdef DEBUG
   // I could enable caching here, but that hits performance and inturn affects table view scrolling
   // if imageAtURL is called for loading thumbnails.
-  if(![self isCacheEnabled]) DLog(@"imageAtURL:onCompletion: requires caching to be enabled.")
+  if(![self isCacheEnabled]) DLog(@"imageAtURL:onCompletion: requires caching to be enabled.");
 #endif
     
     if (url == nil) {
@@ -488,7 +488,7 @@ static NSOperationQueue *_sharedNetworkQueue;
 #ifdef DEBUG
   // I could enable caching here, but that hits performance and inturn affects table view scrolling
   // if imageAtURL is called for loading thumbnails.
-  if(![self isCacheEnabled]) DLog(@"imageAtURL:size:onCompletion: requires caching to be enabled.")
+  if(![self isCacheEnabled]) DLog(@"imageAtURL:size:onCompletion: requires caching to be enabled.");
 #endif
     
     if (url == nil) {
