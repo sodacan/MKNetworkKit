@@ -44,7 +44,8 @@
 #endif
 
 #ifdef DEBUG
-#   define MKLog(fmt, ...) {NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);}
+//#   define MKLog(fmt, ...) {NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);}
+#   define MKLog(...)
 #   define ELog(err) {if(err) DLog(@"%@", err);}
 #else
 #   define MKLog(...)
