@@ -109,13 +109,15 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 // even if URL and others are same, POST, DELETE, PUT methods should not be cached and should not be treated equal.
 
 -(BOOL) isCacheable {
-  
+
+  if(self.shouldNotCacheResponse) return NO;
   if(self.username != nil) return NO;
   if(self.password != nil) return NO;
   if(self.clientCertificate != nil) return NO;
   if(self.clientCertificatePassword != nil) return NO;
   if(![self.request.HTTPMethod isEqualToString:@"GET"]) return NO;
-  if([self.request.URL.scheme.lowercaseString isEqualToString:@"https"]) return NO;
+  if([self.request.URL.scheme.lowercaseString isEqualToString:@"https"]) return self.shouldCacheResponseEvenIfProtocolIsHTTPS;
+  if(self.downloadStreams.count > 0) return NO; // should not cache operations that have streams attached
   return YES;
 }
 
@@ -127,13 +129,13 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 + (BOOL)automaticallyNotifiesObserversForKey: (NSString *)theKey
 {
   BOOL automatic;
-  
+
   if ([theKey isEqualToString:@"postDataEncoding"]) {
     automatic = NO;
   } else {
     automatic = [super automaticallyNotifiesObserversForKey:theKey];
   }
-  
+
   return automatic;
 }
 
@@ -147,11 +149,11 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 - (void)setPostDataEncoding:(MKNKPostDataEncodingType)aPostDataEncoding
 {
   _postDataEncoding = aPostDataEncoding;
-  
+
   NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
-  
+
   switch (self.postDataEncoding) {
-      
+
     case MKNKPostDataEncodingTypeURL: {
       [self.request setValue:
        [NSString stringWithFormat:@"application/x-www-form-urlencoded; charset=%@", charset]
@@ -169,14 +171,14 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
        [NSString stringWithFormat:@"application/x-plist; charset=%@", charset]
           forHTTPHeaderField:@"Content-Type"];
     }
-      
+
     default:
       break;
   }
 }
 
 -(NSString*) encodedPostDataString {
-  
+
   NSString *returnValue = @"";
   if(self.postDataEncodingHandler)
     returnValue = self.postDataEncodingHandler(self.fieldsToBePosted);
@@ -190,7 +192,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) setCustomPostDataEncodingHandler:(MKNKEncodingBlock) postDataEncodingHandler forType:(NSString*) contentType {
-  
+
   NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
   self.postDataEncoding = MKNKPostDataEncodingTypeCustom;
   self.postDataEncodingHandler = postDataEncodingHandler;
@@ -207,32 +209,32 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(NSString*) url {
-  
+
   return [[self.request URL] absoluteString];
 }
 
 -(NSURLRequest*) readonlyRequest {
-  
+
   return [self.request copy];
 }
 
 -(NSHTTPURLResponse*) readonlyResponse {
-  
+
   return [self.response copy];
 }
 
 - (NSDictionary *) readonlyPostDictionary {
-  
+
   return [self.fieldsToBePosted copy];
 }
 
 -(NSString*) HTTPMethod {
-  
+
   return self.request.HTTPMethod;
 }
 
 -(NSInteger) HTTPStatusCode {
-  
+
   if(self.response)
     return self.response.statusCode;
   else
@@ -245,63 +247,69 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   // No point in freezing a method that doesn't change server state.
   if([self.request.HTTPMethod isEqualToString:@"GET"] && flag) return;
   _freezable = flag;
-  
+
   if(_freezable && self.uniqueId == nil)
     self.uniqueId = [NSString uniqueString];
 }
 
 
 -(BOOL) isEqual:(id)object {
-  
+  if(object == self)
+    return YES;
+  if(!object || ![object isKindOfClass:[self class]])
+    return NO;
   if([self.request.HTTPMethod isEqualToString:@"GET"] || [self.request.HTTPMethod isEqualToString:@"HEAD"]) {
-    
+
     MKNetworkOperation *anotherObject = (MKNetworkOperation*) object;
     return ([[self uniqueIdentifier] isEqualToString:[anotherObject uniqueIdentifier]]);
   }
-  
+
   return NO;
 }
 
+-(NSUInteger) hash {
+  return [[self uniqueIdentifier] hash];
+}
 
 -(NSString*) uniqueIdentifier {
-  
+
   NSMutableString *str = [NSMutableString stringWithFormat:@"%@ %@", self.request.HTTPMethod, self.url];
-  
+
   if(self.username || self.password) {
-    
+
     [str appendFormat:@" [%@:%@]",
      self.username ? self.username : @"",
      self.password ? self.password : @""];
   }
-  
+
   if(self.freezable) {
-    
+
     [str appendString:self.uniqueId];
   }
   return [str md5];
 }
 
 -(BOOL) isCachedResponse {
-  
+
   return self.cachedResponse != nil;
 }
 
 -(void) notifyCache {
-  
+
   if(![self isCacheable]) return;
   if(!([self.response statusCode] >= 200 && [self.response statusCode] < 300)) return;
-  
+
   if(![self isCancelled])
     self.cacheHandlingBlock(self);
 }
 
 -(MKNetworkOperationState) state {
-  
+
   return (MKNetworkOperationState)_state;
 }
 
 -(void) setState:(MKNetworkOperationState)newState {
-  
+
   switch (newState) {
     case MKNetworkOperationStateReady:
       [self willChangeValueForKey:@"isReady"];
@@ -315,9 +323,9 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
       [self willChangeValueForKey:@"isFinished"];
       break;
   }
-  
+
   _state = newState;
-  
+
   switch (newState) {
     case MKNetworkOperationStateReady:
       [self didChangeValueForKey:@"isReady"];
@@ -331,7 +339,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
       [self didChangeValueForKey:@"isFinished"];
       break;
   }
-  
+
   if(self.operationStateChangedHandler) {
     self.operationStateChangedHandler(newState);
   }
@@ -341,7 +349,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 {
   [encoder encodeInteger:(NSInteger)self.stringEncoding forKey:@"stringEncoding"];
   [encoder encodeInteger:_postDataEncoding forKey:@"postDataEncoding"];
-  
+
   [encoder encodeObject:self.uniqueId forKey:@"uniqueId"];
   [encoder encodeObject:self.request forKey:@"request"];
   [encoder encodeObject:self.response forKey:@"response"];
@@ -374,7 +382,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
     _postDataEncoding = (MKNKPostDataEncodingType) [decoder decodeIntegerForKey:@"postDataEncoding"];
     self.request = [decoder decodeObjectForKey:@"request"];
     self.uniqueId = [decoder decodeObjectForKey:@"uniqueId"];
-    
+
     self.response = [decoder decodeObjectForKey:@"response"];
     self.fieldsToBePosted = [decoder decodeObjectForKey:@"fieldsToBePosted"];
     self.filesToBePosted = [decoder decodeObjectForKey:@"filesToBePosted"];
@@ -400,11 +408,11 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 - (id)copyWithZone:(NSZone *)zone
 {
   MKNetworkOperation *theCopy = [[[self class] allocWithZone:zone] init];  // use designated initializer
-  
+
   theCopy.postDataEncoding = _postDataEncoding;
   [theCopy setStringEncoding:self.stringEncoding];
   [theCopy setUniqueId:[self.uniqueId copy]];
-  
+
   [theCopy setConnection:[self.connection copy]];
   [theCopy setRequest:[self.request copy]];
   [theCopy setResponse:[self.response copy]];
@@ -430,18 +438,18 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
   [theCopy setCacheHandlingBlock:self.cacheHandlingBlock];
   [theCopy setStartPosition:self.startPosition];
   [theCopy setCredentialPersistence:self.credentialPersistence];
-  
+
   return theCopy;
 }
 
 -(void) dealloc {
-  
+
   [_connection cancel];
   _connection = nil;
 }
 
 -(void) updateHandlersFromOperation:(MKNetworkOperation*) operation {
-  
+
   [self.responseBlocks addObjectsFromArray:operation.responseBlocks];
   [self.errorBlocks addObjectsFromArray:operation.errorBlocks];
   [self.errorBlocksType2 addObjectsFromArray:operation.errorBlocksType2];
@@ -452,46 +460,46 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) setCachedData:(NSData*) cachedData {
-  
+
   self.cachedResponse = cachedData;
   [self operationSucceeded];
 }
 
 -(void) updateOperationBasedOnPreviousHeaders:(NSMutableDictionary*) headers {
-  
+
   NSString *lastModified = headers[@"Last-Modified"];
   NSString *eTag = headers[@"ETag"];
   if(lastModified) {
     [self.request setValue:lastModified forHTTPHeaderField:@"IF-MODIFIED-SINCE"];
   }
-  
+
   if(eTag) {
     [self.request setValue:eTag forHTTPHeaderField:@"IF-NONE-MATCH"];
   }
 }
 
 -(void) setUsername:(NSString*) username password:(NSString*) password {
-  
+
   self.username = username;
   self.password = password;
 }
 
 -(void) setUsername:(NSString*) username password:(NSString*) password basicAuth:(BOOL) bYesOrNo {
-  
+
   [self setUsername:username password:password];
   NSString *base64EncodedString = [[[NSString stringWithFormat:@"%@:%@", self.username, self.password] dataUsingEncoding:NSUTF8StringEncoding] base64EncodedString];
-  
+
   [self setAuthorizationHeaderValue:base64EncodedString forAuthType:@"Basic"];
 }
 
 -(void) onCompletion:(MKNKResponseBlock) response onError:(MKNKErrorBlock) error {
-  
+
   [self.responseBlocks addObject:[response copy]];
   [self.errorBlocks addObject:[error copy]];
 }
 
 -(void) addCompletionHandler:(MKNKResponseBlock)response errorHandler:(MKNKResponseErrorBlock)error {
-  
+
   if(response)
     [self.responseBlocks addObject:[response copy]];
   if(error)
@@ -499,28 +507,27 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 -(void) onNotModified:(MKNKVoidBlock)notModifiedBlock {
-  
+
   [self.notModifiedHandlers addObject:[notModifiedBlock copy]];
 }
 
 -(void) onUploadProgressChanged:(MKNKProgressBlock) uploadProgressBlock {
-  
+
   [self.uploadProgressChangedHandlers addObject:[uploadProgressBlock copy]];
 }
 
 -(void) onDownloadProgressChanged:(MKNKProgressBlock) downloadProgressBlock {
-  
+
   [self.downloadProgressChangedHandlers addObject:[downloadProgressBlock copy]];
 }
 
 -(void) setUploadStream:(NSInputStream*) inputStream {
-  
-  // SILENCED: #warning Method not tested yet.
+
   self.request.HTTPBodyStream = inputStream;
 }
 
 -(void) addDownloadStream:(NSOutputStream*) outputStream {
-  
+
   [outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
   [self.downloadStreams addObject:outputStream];
 }
@@ -531,73 +538,73 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 
 {
   if((self = [super init])) {
-    
+
     self.responseBlocks = [NSMutableArray array];
     self.errorBlocks = [NSMutableArray array];
     self.errorBlocksType2 = [NSMutableArray array];
     self.filesToBePosted = [NSMutableArray array];
     self.dataToBePosted = [NSMutableArray array];
     self.fieldsToBePosted = [NSMutableDictionary dictionary];
-    
+
     self.notModifiedHandlers = [NSMutableArray array];
     self.uploadProgressChangedHandlers = [NSMutableArray array];
     self.downloadProgressChangedHandlers = [NSMutableArray array];
     self.downloadStreams = [NSMutableArray array];
-    
+
     self.credentialPersistence = NSURLCredentialPersistenceForSession;
-    
+
     NSURL *finalURL = nil;
-    
+
     if(params)
       self.fieldsToBePosted = [params mutableCopy];
-    
+
     self.stringEncoding = NSUTF8StringEncoding; // use a delegate to get these values later
-    
+
     if(!method) method = @"GET";
-    
+
     if ([method isEqualToString:@"GET"])
       self.cacheHeaders = [NSMutableDictionary dictionary];
-    
+
     if (([method isEqualToString:@"GET"] ||
          [method isEqualToString:@"DELETE"]) && (params && [params count] > 0)) {
-      
+
       finalURL = [NSURL URLWithString:[NSString stringWithFormat:@"%@?%@", aURLString,
                                        [self encodedPostDataString]]];
     } else {
       finalURL = [NSURL URLWithString:aURLString];
     }
-    
+
     self.request = [NSMutableURLRequest requestWithURL:finalURL
                                            cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
                                        timeoutInterval:kMKNetworkKitRequestTimeOutInSeconds];
-    
+
     [self.request setHTTPMethod:method];
-    
+
     [self.request setValue:[NSString stringWithFormat:@"%@, en-us",
                             [[NSLocale preferredLanguages] componentsJoinedByString:@", "]
                             ] forHTTPHeaderField:@"Accept-Language"];
-    
+
     if (([method isEqualToString:@"POST"] ||
          [method isEqualToString:@"PUT"]) && (params && [params count] > 0)) {
-      
+
       self.postDataEncoding = MKNKPostDataEncodingTypeURL;
     }
-    
+
     self.state = MKNetworkOperationStateReady;
   }
-  
+
   return self;
 }
 
 -(void) addHeaders:(NSDictionary*) headersDictionary {
-  
+
   [headersDictionary enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
     [self.request addValue:obj forHTTPHeaderField:key];
   }];
 }
 
 -(void) setAuthorizationHeaderValue:(NSString*) token forAuthType:(NSString*) authType {
-  
+
   [self.request setValue:[NSString stringWithFormat:@"%@ %@", authType, token]
       forHTTPHeaderField:@"Authorization"];
 }
@@ -606,126 +613,126 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
  */
 
 -(NSString*) description {
-  
+
   NSMutableString *displayString = [NSMutableString stringWithFormat:@"%@\nRequest\n-------\n%@",
                                     [[NSDate date] descriptionWithLocale:[NSLocale currentLocale]],
                                     [self curlCommandLineString]];
-  
+
   NSString *responseString = [self responseString];
   if([responseString length] > 0) {
     [displayString appendFormat:@"\n--------\nResponse\n--------\n%@\n", responseString];
   }
-  
+
   return displayString;
 }
 
 -(NSString*) curlCommandLineString
 {
   __block NSMutableString *displayString = [NSMutableString stringWithFormat:@"curl -X %@", self.request.HTTPMethod];
-  
+
   if([self.filesToBePosted count] == 0 && [self.dataToBePosted count] == 0) {
     [[self.request allHTTPHeaderFields] enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop)
      {
        [displayString appendFormat:@" -H \"%@: %@\"", key, val];
      }];
   }
-  
+
   [displayString appendFormat:@" \"%@\"",  self.url];
-  
+
   if ([self.request.HTTPMethod isEqualToString:@"POST"] ||
       [self.request.HTTPMethod isEqualToString:@"PUT"] ||
       [self.request.HTTPMethod isEqualToString:@"PATCH"]) {
-    
+
     NSString *option = [self.filesToBePosted count] == 0 ? @"-d" : @"-F";
     if(self.postDataEncoding == MKNKPostDataEncodingTypeURL) {
       [self.fieldsToBePosted enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-        
+
         [displayString appendFormat:@" %@ \"%@=%@\"", option, key, obj];
       }];
     } else {
       [displayString appendFormat:@" -d \"%@\"", [self encodedPostDataString]];
     }
-    
-    
+
+
     [self.filesToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-      
+
       NSDictionary *thisFile = (NSDictionary*) obj;
       [displayString appendFormat:@" -F \"%@=@%@;type=%@\"", thisFile[@"name"],
        thisFile[@"filepath"], thisFile[@"mimetype"]];
     }];
-    
+
     /* Not sure how to do this via curl
      [self.dataToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-     
+
      NSDictionary *thisData = (NSDictionary*) obj;
      [displayString appendFormat:@" --data-binary \"%@\"", [thisData objectForKey:@"data"]];
      }];*/
   }
-  
+
   return displayString;
 }
 
 
 -(void) addData:(NSData*) data forKey:(NSString*) key {
-  
+
   [self addData:data forKey:key mimeType:@"application/octet-stream" fileName:@"file"];
 }
 
 -(void) addData:(NSData*) data forKey:(NSString*) key mimeType:(NSString*) mimeType fileName:(NSString*) fileName {
-  
+
   if ([self.request.HTTPMethod isEqualToString:@"GET"]) {
     [self.request setHTTPMethod:@"POST"];
   }
-  
+
   NSDictionary *dict = @{@"data": data,
   @"name": key,
   @"mimetype": mimeType,
   @"filename": fileName};
-  
+
   [self.dataToBePosted addObject:dict];
 }
 
 -(void) addFile:(NSString*) filePath forKey:(NSString*) key {
-  
+
   [self addFile:filePath forKey:key mimeType:@"application/octet-stream"];
 }
 
 -(void) addFile:(NSString*) filePath forKey:(NSString*) key mimeType:(NSString*) mimeType {
-  
+
   if ([self.request.HTTPMethod isEqualToString:@"GET"]) {
     [self.request setHTTPMethod:@"POST"];
   }
-  
+
   NSDictionary *dict = @{@"filepath": filePath,
   @"name": key,
   @"mimetype": mimeType};
-  
+
   [self.filesToBePosted addObject:dict];
 }
 
 -(NSData*) bodyData {
-  
+
   if([self.filesToBePosted count] == 0 && [self.dataToBePosted count] == 0) {
-    
+
     return [[self encodedPostDataString] dataUsingEncoding:self.stringEncoding];
   }
-  
+
   NSString *boundary = @"0xKhTmLbOuNdArY";
   NSMutableData *body = [NSMutableData data];
   __block NSUInteger postLength = 0;
-  
+
   [self.fieldsToBePosted enumerateKeysAndObjectsUsingBlock:^(id key, id obj, BOOL *stop) {
-    
+
     NSString *thisFieldString = [NSString stringWithFormat:
                                  @"--%@\r\nContent-Disposition: form-data; name=\"%@\"\r\n\r\n%@",
                                  boundary, key, obj];
-    
+
     [body appendData:[thisFieldString dataUsingEncoding:[self stringEncoding]]];
     [body appendData:[@"\r\n" dataUsingEncoding:[self stringEncoding]]];
   }];
-  
+
   [self.filesToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-    
+
     NSDictionary *thisFile = (NSDictionary*) obj;
     NSString *thisFieldString = [NSString stringWithFormat:
                                  @"--%@\r\nContent-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\nContent-Type: %@\r\nContent-Transfer-Encoding: binary\r\n\r\n",
@@ -733,14 +740,14 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
                                  thisFile[@"name"],
                                  [thisFile[@"filepath"] lastPathComponent],
                                  thisFile[@"mimetype"]];
-    
+
     [body appendData:[thisFieldString dataUsingEncoding:[self stringEncoding]]];
     [body appendData: [NSData dataWithContentsOfFile:thisFile[@"filepath"]]];
     [body appendData:[@"\r\n" dataUsingEncoding:[self stringEncoding]]];
   }];
-  
+
   [self.dataToBePosted enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-    
+
     NSDictionary *thisDataObject = (NSDictionary*) obj;
     NSString *thisFieldString = [NSString stringWithFormat:
                                  @"--%@\r\nContent-Disposition: form-data; name=\"%@\"; filename=\"%@\"\r\nContent-Type: %@\r\nContent-Transfer-Encoding: binary\r\n\r\n",
@@ -748,46 +755,46 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
                                  thisDataObject[@"name"],
                                  thisDataObject[@"filename"],
                                  thisDataObject[@"mimetype"]];
-    
+
     [body appendData:[thisFieldString dataUsingEncoding:[self stringEncoding]]];
     [body appendData:thisDataObject[@"data"]];
     [body appendData:[@"\r\n" dataUsingEncoding:[self stringEncoding]]];
   }];
-  
+
   if (postLength >= 1)
     [self.request setValue:[NSString stringWithFormat:@"%lu", (unsigned long) postLength] forHTTPHeaderField:@"Content-Length"];
-  
+
   [body appendData: [[NSString stringWithFormat:@"--%@--\r\n", boundary] dataUsingEncoding:self.stringEncoding]];
-  
+
   NSString *charset = (__bridge NSString *)CFStringConvertEncodingToIANACharSetName(CFStringConvertNSStringEncodingToEncoding(self.stringEncoding));
-  
+
   if(([self.filesToBePosted count] > 0) || ([self.dataToBePosted count] > 0)) {
     [self.request setValue:[NSString stringWithFormat:@"multipart/form-data; charset=%@; boundary=%@", charset, boundary]
         forHTTPHeaderField:@"Content-Type"];
-    
+
     [self.request setValue:[NSString stringWithFormat:@"%lu", (unsigned long) [body length]] forHTTPHeaderField:@"Content-Length"];
   }
-  
+
   return body;
 }
 
 
 -(void) setCacheHandler:(MKNKResponseBlock) cacheHandler {
-  
+
   self.cacheHandlingBlock = cacheHandler;
 }
 
 #pragma mark -
 #pragma Main method
 -(void) main {
-  
+
   @autoreleasepool {
     [self start];
   }
 }
 
 -(void) endBackgroundTask {
-  
+
 #if TARGET_OS_IPHONE
   dispatch_async(dispatch_get_main_queue(), ^{
     if (self.backgroundTaskId != UIBackgroundTaskInvalid) {
@@ -800,10 +807,10 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 
 - (void) start
 {
-  
+
 #if TARGET_OS_IPHONE
   self.backgroundTaskId = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
       if (self.backgroundTaskId != UIBackgroundTaskInvalid)
       {
@@ -813,29 +820,29 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
       }
     });
   }];
-  
+
 #endif
-  
+
   if(!self.isCancelled) {
-    
+
     if (([self.request.HTTPMethod isEqualToString:@"POST"] ||
          [self.request.HTTPMethod isEqualToString:@"PUT"] ||
          [self.request.HTTPMethod isEqualToString:@"PATCH"]) && !self.request.HTTPBodyStream) {
-      
+
       [self.request setHTTPBody:[self bodyData]];
     }
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
       self.connection = [[NSURLConnection alloc] initWithRequest:self.request
                                                         delegate:self
                                                 startImmediately:NO];
-      
+
       [self.connection scheduleInRunLoop:[NSRunLoop currentRunLoop]
                                  forMode:NSRunLoopCommonModes];
-      
+
       [self.connection start];
     });
-    
+
     self.state = MKNetworkOperationStateExecuting;
   }
   else {
@@ -853,7 +860,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 - (BOOL)isReady {
-  
+
   return (self.state == MKNetworkOperationStateReady && [super isReady]);
 }
 
@@ -863,54 +870,54 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 }
 
 - (BOOL)isExecuting {
-  
+
   return (self.state == MKNetworkOperationStateExecuting);
 }
 
 -(void) cancel {
-  
+
   if([self isFinished])
     return;
-  
+
   @synchronized(self) {
     self.isCancelled = YES;
-    
+
     [self.connection cancel];
-    
+
     [self.responseBlocks removeAllObjects];
     self.responseBlocks = nil;
-    
+
     [self.errorBlocks removeAllObjects];
     self.errorBlocks = nil;
-    
+
     [self.errorBlocksType2 removeAllObjects];
     self.errorBlocksType2 = nil;
-    
+
     [self.notModifiedHandlers removeAllObjects];
     self.notModifiedHandlers = nil;
-    
+
     [self.uploadProgressChangedHandlers removeAllObjects];
     self.uploadProgressChangedHandlers = nil;
-    
+
     [self.downloadProgressChangedHandlers removeAllObjects];
     self.downloadProgressChangedHandlers = nil;
-    
+
     for(NSOutputStream *stream in self.downloadStreams)
       [stream close];
-    
+
     [self.downloadStreams removeAllObjects];
     self.downloadStreams = nil;
-    
+
     self.authHandler = nil;
     self.mutableData = nil;
     self.downloadedDataSize = 0;
-    
+
     self.cacheHandlingBlock = nil;
-    
+
     if(self.state == MKNetworkOperationStateExecuting)
       self.state = MKNetworkOperationStateFinished; // This notifies the queue and removes the operation.
     // if the operation is not removed, the spinner continues to spin, not a good UX
-    
+
     [self endBackgroundTask];
   }
   [super cancel];
@@ -920,13 +927,13 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,
 #pragma mark NSURLConnection delegates
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
-  
+
   self.state = MKNetworkOperationStateFinished;
   self.mutableData = nil;
   self.downloadedDataSize = 0;
   for(NSOutputStream *stream in self.downloadStreams)
     [stream close];
-  
+
   [self operationFailedWithError:error];
   [self endBackgroundTask];
 }
@@ -938,25 +945,25 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
                                  CFStringRef keyPassword)
 {
   OSStatus securityError = errSecSuccess;
-  
-  
+
+
   const void *keys[] =   { kSecImportExportPassphrase };
   const void *values[] = { keyPassword };
   CFDictionaryRef optionsDictionary = NULL;
-  
+
   /* Create a dictionary containing the passphrase if one
    was specified.  Otherwise, create an empty dictionary. */
   optionsDictionary = CFDictionaryCreate(
                                          NULL, keys,
                                          values, (keyPassword ? 1 : 0),
                                          NULL, NULL);  // 6
-  
+
   CFArrayRef items = NULL;
   securityError = SecPKCS12Import(inPKCS12Data,
                                   optionsDictionary,
                                   &items);                    // 7
-  
-  
+
+
   //
   if (securityError == 0) {                                   // 8
     CFDictionaryRef myIdentityAndTrust = CFArrayGetValueAtIndex (items, 0);
@@ -967,43 +974,43 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
     *outIdentity = (SecIdentityRef)tempIdentity;
     const void *tempTrust = NULL;
     tempTrust = CFDictionaryGetValue (myIdentityAndTrust, kSecImportItemTrust);
-    
+
     CFRetain(tempTrust);
     *outTrust = (SecTrustRef)tempTrust;
   }
-  
+
   if (optionsDictionary)
     CFRelease(optionsDictionary);                           // 9
-  
+
   if (items)
     CFRelease(items);
-  
+
   return securityError;
 }
 
 - (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge {
-  
+
   if (challenge.previousFailureCount == 0) {
-    
+
     if (((challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodDefault) ||
          (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPBasic) ||
          (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPDigest) ||
          (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodNTLM)) &&
         (self.username && self.password))
     {
-      
+
       // for NTLM, we will assume user name to be of the form "domain\\username"
       NSURLCredential *credential = [NSURLCredential credentialWithUser:self.username
                                                                password:self.password
                                                             persistence:self.credentialPersistence];
-      
+
       [challenge.sender useCredential:credential forAuthenticationChallenge:challenge];
     }
     else if ((challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate) && self.clientCertificate) {
-      
+
       NSError *error = nil;
       NSData *certData = [[NSData alloc] initWithContentsOfFile:self.clientCertificate options:0 error:&error];
-      
+
       SecIdentityRef identity;
       SecTrustRef trust;
       OSStatus status = extractIdentityAndTrust((__bridge CFDataRef) certData, &identity, &trust, (__bridge CFStringRef) self.clientCertificatePassword);
@@ -1025,35 +1032,35 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
       }
     }
     else if (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust) {
-      
+
       if(challenge.previousFailureCount < 5) {
-        
+
         self.serverTrust = challenge.protectionSpace.serverTrust;
         SecTrustResultType result;
         SecTrustEvaluate(self.serverTrust, &result);
-        
+
         if(result == kSecTrustResultProceed ||
            result == kSecTrustResultUnspecified || //The cert is valid, but user has not explicitly accepted/denied. Ok to proceed (Ch 15: iOS PTL :Pg 269)
            result == kSecTrustResultRecoverableTrustFailure //The cert is invalid, but is invalid because of name mismatch. Ok to proceed (Ch 15: iOS PTL :Pg 269)
            ) {
-          
+
           [challenge.sender useCredential:[NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust] forAuthenticationChallenge:challenge];
         }
         else if(result == kSecTrustResultConfirm) {
-          
+
           if(self.shouldContinueWithInvalidCertificate) {
-            
+
             // Cert not trusted, but user is OK with that
             DLog(@"Certificate is not trusted, but self.shouldContinueWithInvalidCertificate is YES");
             [challenge.sender useCredential:[NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust] forAuthenticationChallenge:challenge];
           } else {
-            
+
             DLog(@"Certificate is not trusted, continuing without credentials. Might result in 401 Unauthorized");
             [challenge.sender continueWithoutCredentialForAuthenticationChallenge:challenge];
           }
         }
         else {
-          
+
           // invalid or revoked certificate
           if(self.shouldContinueWithInvalidCertificate) {
             DLog(@"Certificate is invalid, but self.shouldContinueWithInvalidCertificate is YES");
@@ -1064,12 +1071,12 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
           }
         }
       } else {
-        
+
         [challenge.sender cancelAuthenticationChallenge:challenge];
       }
     }
     else if (self.authHandler) {
-      
+
       // forward the authentication to the view controller that created this operation
       // If this happens for NSURLAuthenticationMethodHTMLForm, you have to
       // do some shit work like showing a modal webview controller and close it after authentication.
@@ -1087,74 +1094,74 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-  
+
   NSUInteger size = [self.response expectedContentLength] < 0 ? 0 : (NSUInteger)[self.response expectedContentLength];
   self.response = (NSHTTPURLResponse*) response;
-  
+
   // dont' save data if the operation was created to download directly to a stream.
   if([self.downloadStreams count] == 0)
     self.mutableData = [NSMutableData dataWithCapacity:size];
   else
     self.mutableData = nil;
-  
+
   for(NSOutputStream *stream in self.downloadStreams)
     [stream open];
-  
+
   NSDictionary *httpHeaders = [self.response allHeaderFields];
-  
+
   // if you attach a stream to the operation, MKNetworkKit will not cache the response.
   // Streams are usually "big data chunks" that doesn't need caching anyways.
-  
+
   if([self.request.HTTPMethod isEqualToString:@"GET"] && [self.downloadStreams count] == 0) {
-    
+
     // We have all this complicated cache handling since NSURLRequestReloadRevalidatingCacheData is not implemented
     // do cache processing only if the request is a "GET" method
     NSString *lastModified = httpHeaders[@"Last-Modified"];
     NSString *eTag = httpHeaders[@"ETag"];
     NSString *expiresOn = httpHeaders[@"Expires"];
-    
+
     NSString *contentType = httpHeaders[@"Content-Type"];
     // if contentType is image,
-    
+
     NSDate *expiresOnDate = nil;
-    
+
     if([contentType rangeOfString:@"image"].location != NSNotFound) {
-      
+
       // For images let's assume a expiry date of 7 days if there is no eTag or Last Modified.
       if(!eTag && !lastModified)
         expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageCacheDuration];
       else
         expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultImageHeadRequestDuration];
     }
-    
+
     NSString *cacheControl = httpHeaders[@"Cache-Control"]; // max-age, must-revalidate, no-cache
     NSArray *cacheControlEntities = [cacheControl componentsSeparatedByString:@","];
-    
+
     for(NSString *substring in cacheControlEntities) {
-      
+
       if([substring rangeOfString:@"max-age"].location != NSNotFound) {
-        
+
         // do some processing to calculate expiresOn
         NSString *maxAge = nil;
         NSArray *array = [substring componentsSeparatedByString:@"="];
         if([array count] > 1)
           maxAge = array[1];
-        
+
         expiresOnDate = [[NSDate date] dateByAddingTimeInterval:[maxAge intValue]];
       }
       if([substring rangeOfString:@"no-cache"].location != NSNotFound) {
-        
+
         // Don't cache this request
         expiresOnDate = [[NSDate date] dateByAddingTimeInterval:kMKNetworkKitDefaultCacheDuration];
       }
     }
-    
+
     // if there was a cacheControl entity, we would have a expiresOnDate that is not nil.
     // "Cache-Control" headers take precedence over "Expires" headers
-    
+
     if(expiresOnDate)
       expiresOn = [expiresOnDate rfc1123String];
-    
+
     // now remember lastModified, eTag and expires for this request in cache
     if(expiresOn)
       (self.cacheHeaders)[@"Expires"] = expiresOn;
@@ -1166,7 +1173,7 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-  
+
   if (self.downloadedDataSize == 0) {
     // This is the first batch of data
     // Check for a range header and make changes as neccesary
@@ -1178,24 +1185,24 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
       DLog(@"Resuming at %lu bytes", (unsigned long) self.startPosition);
     }
   }
-  
+
   if([self.downloadStreams count] == 0)
     [self.mutableData appendData:data];
-  
+
   for(NSOutputStream *stream in self.downloadStreams) {
-    
+
     if ([stream hasSpaceAvailable]) {
       const uint8_t *dataBuffer = [data bytes];
       [stream write:&dataBuffer[0] maxLength:[data length]];
     }
   }
-  
+
   self.downloadedDataSize += [data length];
-  
+
   for(MKNKProgressBlock downloadProgressBlock in self.downloadProgressChangedHandlers) {
-    
+
     if([self.response expectedContentLength] > 0) {
-      
+
       double progress = (double)(self.downloadedDataSize) / (double)(self.startPosition + [self.response expectedContentLength]);
       downloadProgressBlock(progress);
     }
@@ -1205,9 +1212,9 @@ OSStatus extractIdentityAndTrust(CFDataRef inPKCS12Data,        // 5
 - (void)connection:(NSURLConnection *)connection didSendBodyData:(NSInteger)bytesWritten
  totalBytesWritten:(NSInteger)totalBytesWritten
 totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
-  
+
   for(MKNKProgressBlock uploadProgressBlock in self.uploadProgressChangedHandlers) {
-    
+
     if(totalBytesExpectedToWrite > 0) {
       uploadProgressBlock(((double)totalBytesWritten/(double)totalBytesExpectedToWrite));
     }
@@ -1222,38 +1229,39 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
   if (inRedirectResponse) {
     NSMutableURLRequest *r = [self.request mutableCopy];
     [r setURL: [inRequest URL]];
-    
+
     return r;
   } else {
     return inRequest;
   }
 }
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-  
+
   if([self isCancelled])
     return;
-  
+
   self.state = MKNetworkOperationStateFinished;
-  
+
   for(NSOutputStream *stream in self.downloadStreams)
     [stream close];
-  
+
   if (self.response.statusCode >= 200 && self.response.statusCode < 300 && ![self isCancelled]) {
-    
+
     self.cachedResponse = nil; // remove cached data
+
     [self notifyCache];
     [self operationSucceeded];
-    
+
   }
   if (self.response.statusCode >= 300 && self.response.statusCode < 400) {
-    
+
     if(self.response.statusCode == 301) {
       DLog(@"%@ has moved to %@", self.url, [self.response.URL absoluteString]);
     }
     else if(self.response.statusCode == 304) {
-      
+
       for(MKNKVoidBlock notModifiedBlock in self.notModifiedHandlers) {
-        
+
         notModifiedBlock();
       }
     }
@@ -1263,22 +1271,22 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
     else {
       DLog(@"%@ returned status %d", self.url, (int) self.response.statusCode);
     }
-    
+
   } else if (self.response.statusCode >= 400 && self.response.statusCode < 600 && ![self isCancelled]) {
-    
+
     [self operationFailedWithError:[NSError errorWithDomain:NSURLErrorDomain
                                                        code:self.response.statusCode
                                                    userInfo:self.response.allHeaderFields]];
   }
   [self endBackgroundTask];
-  
+
 }
 
 #pragma mark -
 #pragma mark Our methods to get data
 
 -(NSData*) responseData {
-  
+
   if([self isFinished])
     return self.mutableData;
   else if(self.cachedResponse)
@@ -1288,31 +1296,31 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 }
 
 -(NSString*)responseString {
-  
+
   return [self responseStringWithEncoding:self.stringEncoding];
 }
 
 -(NSString*) responseStringWithEncoding:(NSStringEncoding) encoding {
-  
+
   return [[NSString alloc] initWithData:[self responseData] encoding:encoding];
 }
 
 #if TARGET_OS_IPHONE
 -(UIImage*) responseImage {
-  
+
   return [UIImage imageWithData:[self responseData]];
 }
 
 -(void) decompressedResponseImageOfSize:(CGSize) size completionHandler:(void (^)(UIImage *decompressedImage)) imageDecompressionHandler {
-  
+
   static float scale = 1.0f;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
     scale = [[UIScreen mainScreen] scale];
   });
-  
+
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-    
+
     __block CGSize targetSize = CGSizeMake(size.width * scale, size.height * scale);
     UIImage *image = [self responseImage];
     CGImageRef imageRef = image.CGImage;
@@ -1323,10 +1331,10 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
       targetSize = CGSizeMake(1, 1);
       sameSize = YES;
     }
-    
+
     size_t imageWidth = (size_t)targetSize.width;
     size_t imageHeight = (size_t)targetSize.height;
-    
+
     CGContextRef context = CGBitmapContextCreate(NULL,
                                                  imageWidth,
                                                  imageHeight,
@@ -1341,8 +1349,8 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
     if (!context) {
       return;
     }
-    
-    
+
+
     CGRect rect = (CGRect){CGPointZero, {imageWidth, imageHeight}};
     CGContextDrawImage(context, rect, imageRef);
     if (sameSize) {
@@ -1354,7 +1362,7 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
     }
     CGImageRef decompressedImageRef = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
-        
+
     UIImage *decompressedImage = [[UIImage alloc] initWithCGImage:decompressedImageRef scale:scale orientation:image.imageOrientation];
     CGImageRelease(decompressedImageRef);
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -1365,18 +1373,18 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 
 #elif TARGET_OS_MAC
 -(NSImage*) responseImage {
-  
+
   return [[NSImage alloc] initWithData:[self responseData]];
 }
 
 -(NSXMLDocument*) responseXML {
-  
+
   return [[NSXMLDocument alloc] initWithData:[self responseData] options:0 error:nil];
 }
 #endif
 
 -(id) responseJSON {
-  
+
   if([self responseData] == nil) return nil;
   NSError *error = nil;
   id returnValue = [NSJSONSerialization JSONObjectWithData:[self responseData] options:0 error:&error];
@@ -1385,26 +1393,26 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 }
 
 -(void) responseJSONWithCompletionHandler:(void (^)(id jsonObject)) jsonDecompressionHandler {
-  
+
   if([self responseData] == nil) {
-    
+
     jsonDecompressionHandler(nil);
     return;
   }
-  
+
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-    
+
     NSError *error = nil;
     id returnValue = [NSJSONSerialization JSONObjectWithData:[self responseData] options:0 error:&error];
     if(error) {
-      
+
       DLog(@"JSON Parsing Error: %@", error);
       jsonDecompressionHandler(nil);
       return;
     }
-    
+
     dispatch_async(dispatch_get_main_queue(), ^{
-      
+
       jsonDecompressionHandler(returnValue);
     });
   });
@@ -1413,45 +1421,45 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 #pragma mark Overridable methods
 
 -(void) operationSucceeded {
-  
+
   for(MKNKResponseBlock responseBlock in self.responseBlocks)
     responseBlock(self);
 }
 
 -(void) showLocalNotification {
 #if TARGET_OS_IPHONE
-  
+
   if(self.localNotification) {
-    
+
     [[UIApplication sharedApplication] presentLocalNotificationNow:self.localNotification];
   } else if(self.shouldShowLocalNotificationOnError) {
-    
+
     UILocalNotification *localNotification = [[UILocalNotification alloc] init];
-    
+
     localNotification.alertBody = [self.error localizedDescription];
     localNotification.alertAction = NSLocalizedString(@"Dismiss", @"");
-    
+
     [[UIApplication sharedApplication] presentLocalNotificationNow:localNotification];
   }
 #endif
 }
 
 -(void) operationFailedWithError:(NSError*) error {
-  
+
   self.error = error;
   MKLog(@"%@, [%@]", self, [self.error localizedDescription]);
   for(MKNKErrorBlock errorBlock in self.errorBlocks)
     errorBlock(error);
-  
+
   for(MKNKResponseErrorBlock errorBlock in self.errorBlocksType2)
     errorBlock(self, error);
-  
+
 #if TARGET_OS_IPHONE
   DLog(@"State: %d", [[UIApplication sharedApplication] applicationState]);
   if([[UIApplication sharedApplication] applicationState] == UIApplicationStateBackground)
     [self showLocalNotification];
 #endif
-  
+
 }
 
 @end

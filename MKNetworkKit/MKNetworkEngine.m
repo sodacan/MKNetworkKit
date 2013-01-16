@@ -476,16 +476,18 @@ static NSOperationQueue *_sharedNetworkQueue;
     }
   
   MKNetworkOperation *op = [self operationWithURLString:[url absoluteString]];
-  
+  op.shouldCacheResponseEvenIfProtocolIsHTTPS = YES;
+
   [op addCompletionHandler:^(MKNetworkOperation *completedOperation) {
     
-    imageFetchedBlock([completedOperation responseImage],
-                      url,
-                      [completedOperation isCachedResponse]);
+    if (imageFetchedBlock)
+        imageFetchedBlock([completedOperation responseImage],
+                          url,
+                          [completedOperation isCachedResponse]);
     
   } errorHandler:^(MKNetworkOperation *completedOperation, NSError *error) {
-    
-    errorBlock(completedOperation, error);
+      if (errorBlock)
+          errorBlock(completedOperation, error);
   }];
   
   [self enqueueOperation:op];
@@ -508,7 +510,8 @@ static NSOperationQueue *_sharedNetworkQueue;
     }
   
   MKNetworkOperation *op = [self operationWithURLString:[url absoluteString]];
-  
+  op.shouldCacheResponseEvenIfProtocolIsHTTPS = YES;
+
   [op addCompletionHandler:^(MKNetworkOperation *completedOperation) {
     [completedOperation decompressedResponseImageOfSize:size
                                       completionHandler:^(UIImage *decompressedImage) {
