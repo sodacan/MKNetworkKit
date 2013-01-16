@@ -1439,7 +1439,7 @@ totalBytesExpectedToWrite:(NSInteger)totalBytesExpectedToWrite {
 -(void) operationFailedWithError:(NSError*) error {
   
   self.error = error;
-  DLog(@"%@, [%@]", self, [self.error localizedDescription]);
+  MKLog(@"%@, [%@]", self, [self.error localizedDescription]);
   for(MKNKErrorBlock errorBlock in self.errorBlocks)
     errorBlock(error);
   
