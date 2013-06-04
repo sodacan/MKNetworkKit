@@ -40,40 +40,40 @@ const float kFreshLoadAnimationDuration = 0.35f;
 @implementation UIImageView (MKNetworkKitAdditions)
 
 -(MKNetworkOperation*) imageFetchOperation {
-  
+
   return (MKNetworkOperation*) objc_getAssociatedObject(self, &imageFetchOperationKey);
 }
 
 -(void) setImageFetchOperation:(MKNetworkOperation *)imageFetchOperation {
-  
+
   objc_setAssociatedObject(self, &imageFetchOperationKey, imageFetchOperation, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 +(void) setDefaultEngine:(MKNetworkEngine*) engine {
-  
+
   DefaultEngine = engine;
 }
 
 -(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image {
-  
+
   return [self setImageFromURL:url placeHolderImage:image usingEngine:DefaultEngine animation:YES];
 }
 
 -(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image animation:(BOOL) yesOrNo {
-  
+
   return [self setImageFromURL:url placeHolderImage:image usingEngine:DefaultEngine animation:yesOrNo];
 }
 
 -(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image usingEngine:(MKNetworkEngine*) imageCacheEngine animation:(BOOL) yesOrNo {
-  
+
   if(image) self.image = image;
-  [self.imageFetchOperation cancel];  
+  [self.imageFetchOperation cancel];
   if(!imageCacheEngine) imageCacheEngine = DefaultEngine;
-  
+
   if(imageCacheEngine) {
   self.imageFetchOperation = [imageCacheEngine imageAtURL:url
                                      completionHandler:^(UIImage *fetchedImage, NSURL *url, BOOL isInCache) {
-                                       
+
                                        [UIView transitionWithView:self.superview
                                                          duration:isInCache?kFromCacheAnimationDuration:kFreshLoadAnimationDuration
                                                           options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
@@ -81,14 +81,14 @@ const float kFreshLoadAnimationDuration = 0.35f;
                                                           } completion:nil];
 
                                      } errorHandler:^(MKNetworkOperation *completedOperation, NSError *error) {
-                                       
+
                                        DLog(@"%@", error);
                                      }];
   } else {
-    
-    DLog(@"No default engine found and imageCacheEngine parameter is null")
+
+    DLog(@"No default engine found and imageCacheEngine parameter is null");
   }
-  
+
   return self.imageFetchOperation;
 }
 @end
