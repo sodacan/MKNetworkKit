@@ -44,17 +44,25 @@
 #endif
 
 #ifdef DEBUG
+#ifndef MKLog
 //#   define MKLog(fmt, ...) {NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);}
 #   define MKLog(...)
-#   define ELog(err) {if(err) DLog(@"%@", err);}
+#endif
+#ifndef ELog
+#   define ELog(err) {if(err) MKLog(@"%@", err);}
+#endif
 #else
+#ifndef MKLog
 #   define MKLog(...)
+#endif
+#ifndef ELog
 #   define ELog(err)
+#endif
 #endif
 
 // ALog always displays output regardless of the DEBUG setting
 #ifndef ALog
-    #define ALog(fmt, ...) {NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);};
+#define ALog(fmt, ...) {NSLog((@"%s [Line %d] " fmt), __PRETTY_FUNCTION__, __LINE__, ##__VA_ARGS__);};
 #endif
 
 #import "Categories/NSString+MKNetworkKitAdditions.h"

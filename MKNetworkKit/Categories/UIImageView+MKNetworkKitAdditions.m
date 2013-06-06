@@ -25,6 +25,8 @@
 
 #import "UIImageView+MKNetworkKitAdditions.h"
 
+#import "MKNetworkEngine.h"
+
 #import <objc/runtime.h>
 
 static MKNetworkEngine *DefaultEngine;
@@ -54,6 +56,11 @@ const float kFreshLoadAnimationDuration = 0.35f;
   DefaultEngine = engine;
 }
 
+-(MKNetworkOperation*) setImageFromURL:(NSURL*) url {
+
+  return [self setImageFromURL:url placeHolderImage:nil];
+}
+
 -(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image {
 
   return [self setImageFromURL:url placeHolderImage:image usingEngine:DefaultEngine animation:YES];
@@ -64,26 +71,32 @@ const float kFreshLoadAnimationDuration = 0.35f;
   return [self setImageFromURL:url placeHolderImage:image usingEngine:DefaultEngine animation:yesOrNo];
 }
 
--(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image usingEngine:(MKNetworkEngine*) imageCacheEngine animation:(BOOL) yesOrNo {
+-(MKNetworkOperation*) setImageFromURL:(NSURL*) url placeHolderImage:(UIImage*) image usingEngine:(MKNetworkEngine*) imageCacheEngine animation:(BOOL) animation {
 
   if(image) self.image = image;
   [self.imageFetchOperation cancel];
   if(!imageCacheEngine) imageCacheEngine = DefaultEngine;
 
   if(imageCacheEngine) {
-  self.imageFetchOperation = [imageCacheEngine imageAtURL:url
-                                     completionHandler:^(UIImage *fetchedImage, NSURL *url, BOOL isInCache) {
+    self.imageFetchOperation = [imageCacheEngine imageAtURL:url
+                                                       size:self.frame.size
+                                          completionHandler:^(UIImage *fetchedImage, NSURL *url, BOOL isInCache) {
 
-                                       [UIView transitionWithView:self.superview
-                                                         duration:isInCache?kFromCacheAnimationDuration:kFreshLoadAnimationDuration
-                                                          options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
-                                                            self.image = fetchedImage;
-                                                          } completion:nil];
+                                            if(animation) {
+                                            [UIView transitionWithView:self.superview
+                                                              duration:isInCache?kFromCacheAnimationDuration:kFreshLoadAnimationDuration
+                                                               options:UIViewAnimationOptionTransitionCrossDissolve | UIViewAnimationOptionAllowUserInteraction
+                                                            animations:^{
+                                                                 self.image = fetchedImage;
+                                                               } completion:nil];
+                                            } else {
+                                              self.image = fetchedImage;
+                                            }
 
-                                     } errorHandler:^(MKNetworkOperation *completedOperation, NSError *error) {
+                                          } errorHandler:^(MKNetworkOperation *completedOperation, NSError *error) {
 
-                                       DLog(@"%@", error);
-                                     }];
+                                            DLog(@"%@", error);
+                                          }];
   } else {
 
     DLog(@"No default engine found and imageCacheEngine parameter is null");
